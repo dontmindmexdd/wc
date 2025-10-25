@@ -1,4 +1,4 @@
-import { open, type CreateReadStreamOptions } from "node:fs/promises";
+import { open, stat, type CreateReadStreamOptions } from "node:fs/promises";
 
 const OPTIONS: { [key: string]: string } = {
   c: "-c",
@@ -12,7 +12,10 @@ function getCliOption() {
 }
 
 function getFilePath() {
-  return process.argv.pop();
+  return process.argv
+    .slice(2)
+    .filter((arg) => !Object.values(OPTIONS).includes(arg))
+    .pop();
 }
 
 async function getFileStream(
@@ -24,23 +27,8 @@ async function getFileStream(
 }
 
 async function getFileBytes(filepath: string) {
-  const stream = await getFileStream(filepath);
-  return new Promise((resolve, reject) => {
-    let byteCount = 0;
-    let chunk;
-
-    stream.on("readable", () => {
-      while ((chunk = stream.read()) !== null) {
-        byteCount += chunk.length;
-      }
-    });
-
-    stream.on("error", reject);
-
-    stream.on("end", () => {
-      resolve(byteCount);
-    });
-  });
+  const stats = await stat(filepath);
+  return stats.size;
 }
 
 async function getFileLines(filepath: string) {
@@ -74,9 +62,9 @@ async function getFileWords(filepath: string) {
   return new Promise((resolve, reject) => {
     let wordCount = 0;
     let inWord = false;
+    let chunk;
 
     stream.on("readable", () => {
-      let chunk;
       while ((chunk = stream.read()) !== null) {
         for (let i = 0; i < chunk.length; i++) {
           // Any whitespace code
@@ -99,21 +87,15 @@ async function getFileWords(filepath: string) {
 }
 
 async function getFileChars(filepath: string) {
-  const stream = await getFileStream(filepath, { encoding: "utf8" });
+  const stream = await getFileStream(filepath, {
+    encoding: "utf8",
+  });
 
   return new Promise((resolve, reject) => {
     let charCount = 0;
 
-    stream.on("readable", () => {
-      let chunk;
-      while ((chunk = stream.read()) !== null) {
-        for (let i = 0; i < chunk.length; i++) {
-          // Any alphanumeric code
-          if (chunk[i] >= 32 && chunk[i] <= 126) {
-            charCount++;
-          }
-        }
-      }
+    stream.on("data", (chunk) => {
+      charCount += chunk.length;
     });
 
     stream.on("error", reject);
@@ -136,7 +118,7 @@ async function output(
 
   value += filepath;
 
-  console.log(value);
+  console.info(value);
 }
 
 async function main() {
@@ -149,13 +131,13 @@ async function main() {
         await output(filepath, getFileBytes);
         break;
       case OPTIONS.l:
-        console.log((await getFileLines(filepath)) + " " + filepath);
+        await output(filepath, getFileLines);
         break;
       case OPTIONS.w:
-        console.log((await getFileWords(filepath)) + " " + filepath);
+        await output(filepath, getFileWords);
         break;
       case OPTIONS.m:
-        console.log((await getFileChars(filepath)) + " " + filepath);
+        await output(filepath, getFileChars);
         break;
       default:
         await output(filepath, getFileLines, getFileWords, getFileBytes);
